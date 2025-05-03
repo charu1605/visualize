@@ -5,8 +5,10 @@ geoplot.py
 This visualization renders a 3-D plot of the data given the state
 trajectory of a simulation, and the path of the property to render.
 
-It generates an HTML file that contains code to render the plot
-using Cesium Ion, and the GeoJSON file of data provided to the plot.
+It generates:
+1. A GeoJSON file with time-series data.
+2. An HTML file that visualizes this data using CesiumJS.
+
 
 An example of its usage is as follows:
 
@@ -39,6 +41,8 @@ import numpy as np
 
 from string import Template
 from agent_torch.core.helpers import get_by_path
+
+# HTML template with embedded JavaScript to render the Cesium visualization
 
 geoplot_template = """
 <!doctype html>
@@ -211,14 +215,52 @@ geoplot_template = """
 	</body>
 </html>
 """
-
+# Helper function to extract a nested variable from the state using path-like strings
 
 def read_var(state, var):
+	 """
+    Extracts a nested variable from the simulation state using path-like strings.
+
+    Args:
+        state (dict): The simulation state.
+        var (str): The path to the variable to extract (e.g., 'agents/consumers/coordinates').
+
+    Returns:
+        The value of the nested variable at the specified path.
+    """
     return get_by_path(state, re.split("/", var))
 
 
+# GeoPlot visualizes time-series simulation data on a 3D globe using CesiumJS.
+
+
 class GeoPlot:
+	 """
+    The GeoPlot class visualizes simulation data on a 3D globe using CesiumJS.
+    This class takes simulation data and generates both a GeoJSON file (for time-series data)
+    and an HTML file (for visualization in the CesiumJS viewer).
+
+    Attributes:
+        config (dict): Simulation metadata configuration.
+        cesium_token (str): Cesium Ion access token for rendering the visualization.
+        step_time (int): Time in seconds between simulation steps.
+        entity_position (str): Path to entity coordinates in the state.
+        entity_property (str): Path to property to visualize (e.g., money_spent).
+        visualization_type (str): Type of visualization ('color' or 'size').
+    """
     def __init__(self, config, options):
+		"""
+    Initializes the GeoPlot visualizer with configuration and options.
+
+    Args:
+        config (dict): Simulation metadata configuration.
+        options (dict): Dictionary with configuration options such as:
+            - cesium_token (str): Your Cesium Ion access token.
+            - step_time (int): Time in seconds between simulation steps.
+            - coordinates (str): Path to entity coordinates in state.
+            - feature (str): Path to property to visualize (e.g., 'money_spent').
+            - visualization_type (str): 'color' or 'size'.
+    """
         self.config = config
         (
             self.cesium_token,
@@ -235,18 +277,33 @@ class GeoPlot:
         )
 
     def render(self, state_trajectory):
+		"""
+		Renders the simulation trajectory and creates GeoJSON and HTML files.
+
+		Args:
+			state_trajectory (list): List of states over the simulation episodes.
+		
+		This method performs the following steps:
+		1. Extracts coordinates and values from the simulation state.
+		2. Generates timestamps for each simulation step.
+		3. Creates GeoJSON features for each entity in the simulation.
+		4. Saves the generated GeoJSON and HTML files.
+    	"""
         coords, values = [], []
         name = self.config["simulation_metadata"]["name"]
         geodata_path, geoplot_path = f"{name}.geojson", f"{name}.html"
 
+		# Loop through each episode's final state and extract data
         for i in range(0, len(state_trajectory) - 1):
             final_state = state_trajectory[i][-1]
 
+			# Get positions and features (e.g., money_spent)
             coords = np.array(read_var(final_state, self.entity_position)).tolist()
             values.append(
                 np.array(read_var(final_state, self.entity_property)).flatten().tolist()
             )
 
+		# Create timestamps for each step
         start_time = pd.Timestamp.utcnow()
         timestamps = [
             start_time + pd.Timedelta(seconds=i * self.step_time)
@@ -256,6 +313,7 @@ class GeoPlot:
             )
         ]
 
+		# Generate GeoJSON features for each entity
         geojsons = []
         for i, coord in enumerate(coords):
             features = []
@@ -275,9 +333,11 @@ class GeoPlot:
                 )
             geojsons.append({"type": "FeatureCollection", "features": features})
 
+		# Save the GeoJSON data to a file
         with open(geodata_path, "w", encoding="utf-8") as f:
             json.dump(geojsons, f, ensure_ascii=False, indent=2)
 
+    	# Fill in the HTML template and save it
         tmpl = Template(geoplot_template)
         with open(geoplot_path, "w", encoding="utf-8") as f:
             f.write(
